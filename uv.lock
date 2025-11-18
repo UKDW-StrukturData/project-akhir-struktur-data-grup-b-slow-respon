@@ -1,0 +1,8 @@
+version = 1
+revision = 3
+requires-python = ">=3.12"
+
+[[package]]
+name = "project-akhir-struktur-data-grup-b-slow-respon"
+version = "0.1.0"
+source = { virtual = "." }
