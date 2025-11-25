@@ -7,7 +7,7 @@ import pandas as pd
 
 # --- KONFIGURASI APLIKASI ---
 # API BASE URL 
-API_BASE = "https://www.thesportsdb.com/api/v1/json/3/search_all_teams.php?s=Soccer&c=Switzerland"
+API_BASE = "https://www.thesportsdb.com/api/v1/json/3"
 
 # File untuk menyimpan data pengguna
 USER_DATA_FILE = "users.json"
@@ -274,11 +274,7 @@ def render_daftar_pemain():
             cols_to_show = ['strPlayer', 'strPosition', 'dateBorn', 'strSigning', 'strNationality']
             filtered_cols = [col for col in cols_to_show if col in df_players.columns]
             
-            # --- PERBAIKAN PENTING ---
-            # Mengganti nilai NaN/Kosong di kolom yang ingin ditampilkan
-            df_players_clean = df_players[filtered_cols].fillna('N/A')
-            
-            df_display = df_players_clean.rename(columns={
+            df_display = df_players[filtered_cols].rename(columns={
                 'strPlayer': 'Nama',
                 'strPosition': 'Posisi',
                 'dateBorn': 'Tgl Lahir',
