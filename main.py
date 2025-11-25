@@ -13,18 +13,13 @@ API_BASE = "https://www.thesportsdb.com/api/v1/json/3"
 USER_DATA_FILE = "users.json"
 
 # --- INITIALIZATION SESSION STATE ---
-# INI ADALAH BAGIAN KRITIS YANG HARUS DIPERBAIKI/DIPASTIKAN ADA
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = None
     st.session_state.selected_team = None
-    # BARIS INI WAJIB DITAMBAHKAN/DIPASTIKAN ADA
-    st.session_state.selected_team_name = None 
+    st.session_state.selected_team_name = None # Tambahkan ini untuk nama tim
     st.session_state.search_results = []
     st.session_state.current_page = "Home"
-    # Tambahkan inisialisasi untuk input pencarian juga
-    st.session_state.search_query_input = ""
-    st.session_state.search_country_input = ""
 
 # --- FUNGSI AUTHENTIKASI ---
 
@@ -74,7 +69,7 @@ def logout():
     st.session_state.search_results = []
     st.session_state.current_page = "Home"
 
-# --- FUNGSI API (Menggunakan @st.cache_data untuk efisiensi) ---
+# --- FUNGSI API ---
 
 @st.cache_data(ttl=3600)
 def search_teams(query, sport="Soccer", country=None):
@@ -89,11 +84,12 @@ def search_teams(query, sport="Soccer", country=None):
         data = response.json()
         teams = data.get('teams', [])
         
+        # Filter berdasarkan query
         if query:
             teams = [t for t in teams if t.get('strTeam') and query.lower() in t['strTeam'].lower()]
         return teams
     except requests.exceptions.RequestException as e:
-        st.error(f"Gagal mengambil data tim: Periksa koneksi atau URL. ({e})")
+        # Tampilkan error koneksi
         return []
 
 @st.cache_data(ttl=3600)
@@ -164,7 +160,13 @@ def render_cari_tim():
     
     country_list = get_all_countries()
     
-    # Input pencarian (Menggunakan nilai dari session state)
+    # PERBAIKAN: Gunakan kunci state untuk menyimpan input
+    if 'search_query_input' not in st.session_state:
+        st.session_state.search_query_input = ""
+    if 'search_country_input' not in st.session_state:
+        st.session_state.search_country_input = ""
+
+    # Input pencarian
     col_input, col_country = st.columns([2, 1])
     with col_input:
         query = st.text_input(
@@ -182,16 +184,15 @@ def render_cari_tim():
         
     # Fungsi yang dipanggil saat tombol Search ditekan
     def run_search():
-        # Update nilai input ke state permanen
         st.session_state.search_query_input = st.session_state.temp_search_query
         st.session_state.search_country_input = st.session_state.temp_search_country
-        
-        # Panggil API
         st.session_state.search_results = search_teams(
             st.session_state.search_query_input, 
             country=st.session_state.search_country_input
         )
-        
+        if not st.session_state.search_results and st.session_state.search_query_input:
+             st.warning("Tidak ada tim ditemukan.")
+
     if st.button("Search"):
         run_search()
         
@@ -204,6 +205,7 @@ def render_cari_tim():
             col_team_name, col_select = st.columns([3, 1])
             
             with col_team_name:
+                # Menampilkan badge dan nama tim
                 if team.get('strTeamBadge'):
                     col_badge, col_name = st.columns([0.5, 3.5])
                     with col_badge:
@@ -214,18 +216,19 @@ def render_cari_tim():
                     st.write(f"**{team['strTeam']}** ({team.get('strLeague', 'N/A')})")
             
             with col_select:
-                # Tombol Select, menggunakan kunci unik
+                # Tombol untuk memilih tim. Gunakan 'idTeam' dan index 'i' sebagai kunci unik.
                 if st.button(f"Select", key=f"select_{team.get('idTeam', '')}_{i}"):
                     st.session_state.selected_team = team['idTeam']
                     st.session_state.selected_team_name = team['strTeam']
                     
-                    # Navigasi otomatis ke Detail Tim
+                    # Logika navigasi otomatis
                     st.session_state.current_page = "📌 Detail tim" 
                     st.rerun()
                     
-    elif st.session_state.search_query_input and 'search_results' in st.session_state and len(st.session_state.search_results) == 0:
+    elif st.session_state.search_query_input:
          st.markdown("---")
          st.write("Tidak ada tim ditemukan dengan kriteria tersebut.")
+
 
 def render_detail_tim():
     st.header("📌 Detail tim")
@@ -290,12 +293,14 @@ def render_daftar_pemain():
     else:
         st.info("Silakan pilih tim dari '🔍 Cari tim' terlebih dahulu.")
 
+# ... (Fungsi render_jadwal_pertandingan, render_liga_negara, render_info_stadion, dan render_home tetap sama) ...
 def render_jadwal_pertandingan():
     st.header("⚽ Jadwal pertandingan")
     
     if st.session_state.selected_team and st.session_state.selected_team_name:
         st.subheader(f"Jadwal Tim {st.session_state.selected_team_name}")
         
+        # Pertandingan berikutnya
         next_events = get_team_events(st.session_state.selected_team, next=True)
         st.markdown("### Pertandingan Berikutnya")
         
@@ -307,6 +312,7 @@ def render_jadwal_pertandingan():
         else:
             st.info("Tidak ada jadwal pertandingan berikutnya.")
 
+        # Pertandingan terakhir
         last_events = get_team_events(st.session_state.selected_team, next=False)
         st.markdown("### Pertandingan Terakhir")
         
@@ -383,6 +389,9 @@ def render_home():
 def main():
     st.title("AthleteIQ") 
     
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = "Home"
+
     if not st.session_state.logged_in:
         # Tampilkan Login/Register
         tab1, tab2 = st.tabs(["Login", "Register"])
@@ -428,7 +437,6 @@ def main():
             "🏟️ Info stadion"
         ]
         
-        # Menggunakan radio button untuk navigasi
         selected_page = st.sidebar.radio(
             "Pilih Halaman", 
             options=page_options,
@@ -463,3 +471,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
