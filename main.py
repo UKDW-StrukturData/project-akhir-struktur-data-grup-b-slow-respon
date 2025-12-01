@@ -1,474 +1,269 @@
 import streamlit as st
-import requests
-import json
-import os
-from datetime import datetime
-import pandas as pd 
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
+import pandas as pd
+import numpy as np 
 
-# --- KONFIGURASI APLIKASI ---
-# API BASE URL 
-API_BASE = "https://www.thesportsdb.com/api/v1/json/3"
+# --- KONFIGURASI API (WAJIB DIISI) ---
+CLIENT_ID = "7b9a0310b1734b728b21d0e84199c8c5" 
+CLIENT_SECRET = "ef6212c353da4cca99e71b5bb2b7cfee"
 
-# File untuk menyimpan data pengguna
-USER_DATA_FILE = "users.json"
+# Inisialisasi Spotipy
+try:
+    auth_manager = SpotifyClientCredentials(client_id=CLIENT_ID, client_secret=CLIENT_SECRET)
+    sp = spotipy.Spotify(auth_manager=auth_manager)
+    api_connected = True
+    st.sidebar.success("Koneksi Spotify API Berhasil ✅")
+except Exception as e:
+    api_connected = False
+    st.sidebar.error(f"Koneksi Spotify Gagal: {e}")
 
-# --- INITIALIZATION SESSION STATE ---
-if 'logged_in' not in st.session_state:
+# --- SETUP SESSION STATE ---
+if "users_db" not in st.session_state:
+    # PERBAIKAN LOGIN: Tambahkan 'livta' agar bisa login sesuai gambar
+    st.session_state.users_db = {"admin": "12345", "livta": "12345", "odan@gmail.com": "12345"} # Menambahkan odan@gmail.com dan livta
+if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-    st.session_state.username = None
-    st.session_state.selected_team = None
-    st.session_state.selected_team_name = None # Tambahkan ini untuk nama tim
-    st.session_state.search_results = []
-    st.session_state.current_page = "Home"
+if "username" not in st.session_state:
+    st.session_state.username = ""
+if "playlist" not in st.session_state:
+    st.session_state.playlist = []
 
-# --- FUNGSI AUTHENTIKASI ---
-
-def load_users():
-    """Memuat data pengguna dari file JSON."""
-    if os.path.exists(USER_DATA_FILE):
-        try:
-            with open(USER_DATA_FILE, 'r') as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            return {}
-    return {}
-
-def save_users(users):
-    """Menyimpan data pengguna ke file JSON."""
-    with open(USER_DATA_FILE, 'w') as f:
-        json.dump(users, f, indent=4)
+# --- FUNGSI AUTH ---
+def login_user(username, password):
+    db = st.session_state.users_db
+    if username in db and db[username] == password:
+        return True
+    return False
 
 def register_user(username, password):
-    """Mendaftarkan pengguna baru."""
-    users = load_users()
-    if username in users:
-        return False, "Username sudah terdaftar."
+    if username in st.session_state.users_db:
+        return False
+    st.session_state.users_db[username] = password
+    return True
+
+# --- HALAMAN UTAMA ---
+st.set_page_config(page_title="Streamify Music", layout="wide", page_icon="🎵")
+
+# Sidebar
+st.sidebar.title("🎵 Streamify")
+if st.session_state.logged_in:
+    # Username login sudah disesuaikan agar bisa login dengan 'livta' atau 'odan@gmail.com'
+    st.sidebar.write(f"Halo, **{st.session_state.username}**!")
+    if st.sidebar.button("Logout"):
+        st.session_state.logged_in = False
+        st.session_state.username = ""
+        st.rerun()
+
+# Memastikan menu hanya berisi yang ada kodenya
+# PERUBAHAN MENU: MENGGANTI 'Audio Features' dan 'Trending' dengan 'New Releases'
+menu = st.sidebar.radio("Menu", ["Home", "Search", "My Playlist", "New Releases"]) 
+
+# Pengecekan Login untuk akses menu selain Home
+if not st.session_state.logged_in and menu != "Home":
+    st.warning("Silakan Login terlebih dahulu di menu Home.")
+    st.stop()
+
+# -------------------------------------------------------------------------
+# --- HALAMAN 1: HOME (LOGIN/REGISTER) ---
+# -------------------------------------------------------------------------
+if menu == "Home":
+    st.title("Selamat Datang di Streamify 🎧")
     
-    if not username or not password:
-        return False, "Username dan password tidak boleh kosong."
-        
-    users[username] = password 
-    save_users(users)
-    return True, "Pendaftaran berhasil! Silakan Login."
-
-def login_user(username, password):
-    """Login pengguna."""
-    users = load_users()
-    if username in users and users[username] == password:
-        st.session_state.logged_in = True
-        st.session_state.username = username
-        return True, "Login berhasil!"
-    return False, "Username atau password tidak valid."
-
-def logout():
-    """Logout pengguna."""
-    st.session_state.logged_in = False
-    st.session_state.username = None
-    st.session_state.selected_team = None
-    st.session_state.selected_team_name = None
-    st.session_state.search_results = []
-    st.session_state.current_page = "Home"
-
-# --- FUNGSI API ---
-
-@st.cache_data(ttl=3600)
-def search_teams(query, sport="Soccer", country=None):
-    """Mencari tim berdasarkan query, olahraga, dan negara."""
-    url = f"{API_BASE}/search_all_teams.php?s={sport}"
-    if country and country != "": 
-        url += f"&c={country}"
-        
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status() 
-        data = response.json()
-        teams = data.get('teams', [])
-        
-        # Filter berdasarkan query
-        if query:
-            teams = [t for t in teams if t.get('strTeam') and query.lower() in t['strTeam'].lower()]
-        return teams
-    except requests.exceptions.RequestException as e:
-        # Tampilkan error koneksi
-        return []
-
-@st.cache_data(ttl=3600)
-def get_team_details(team_id):
-    """Mendapatkan detail tim berdasarkan ID."""
-    url = f"{API_BASE}/lookupteam.php?id={team_id}"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        return data.get('teams', [{}])[0]
-    except:
-        return {}
-
-@st.cache_data(ttl=3600)
-def get_team_players(team_id):
-    """Mendapatkan daftar pemain berdasarkan ID tim."""
-    url = f"{API_BASE}/lookup_all_players.php?id={team_id}"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        return data.get('player', [])
-    except:
-        return []
-
-@st.cache_data(ttl=3600)
-def get_team_events(team_id, next=True):
-    """Mendapatkan jadwal pertandingan (berikutnya/terakhir)."""
-    endpoint = "eventsnext" if next else "eventslast"
-    url = f"{API_BASE}/{endpoint}.php?id={team_id}"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        return data.get('events', [])
-    except:
-        return []
-
-@st.cache_data(ttl=86400)
-def get_all_leagues():
-    """Mendapatkan daftar semua liga."""
-    url = f"{API_BASE}/all_leagues.php"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        return data.get('leagues', [])
-    except:
-        return []
-
-@st.cache_data(ttl=86400)
-def get_all_countries():
-    """Mendapatkan daftar semua negara."""
-    url = f"{API_BASE}/all_countries.php"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        return [c['name_en'] for c in data.get('countries', []) if c.get('name_en')]
-    except:
-        return []
-
-# --- HALAMAN APLIKASI ---
-
-def render_cari_tim():
-    st.header("🔍 Cari tim")
-    
-    country_list = get_all_countries()
-    
-    # PERBAIKAN: Gunakan kunci state untuk menyimpan input
-    if 'search_query_input' not in st.session_state:
-        st.session_state.search_query_input = ""
-    if 'search_country_input' not in st.session_state:
-        st.session_state.search_country_input = ""
-
-    # Input pencarian
-    col_input, col_country = st.columns([2, 1])
-    with col_input:
-        query = st.text_input(
-            "Search for a team (e.g., FC Basel)", 
-            value=st.session_state.search_query_input,
-            key="temp_search_query"
-        )
-    with col_country:
-        country = st.selectbox(
-            "Country", 
-            [""] + country_list, 
-            index=([""] + country_list).index(st.session_state.search_country_input) if st.session_state.search_country_input in ([""] + country_list) else 0,
-            key="temp_search_country"
-        )
-        
-    # Fungsi yang dipanggil saat tombol Search ditekan
-    def run_search():
-        st.session_state.search_query_input = st.session_state.temp_search_query
-        st.session_state.search_country_input = st.session_state.temp_search_country
-        st.session_state.search_results = search_teams(
-            st.session_state.search_query_input, 
-            country=st.session_state.search_country_input
-        )
-        if not st.session_state.search_results and st.session_state.search_query_input:
-             st.warning("Tidak ada tim ditemukan.")
-
-    if st.button("Search"):
-        run_search()
-        
-    # Tampilkan hasil pencarian
-    if st.session_state.search_results:
-        st.markdown("---")
-        st.subheader(f"Ditemukan {len(st.session_state.search_results)} Tim")
-        
-        for i, team in enumerate(st.session_state.search_results):
-            col_team_name, col_select = st.columns([3, 1])
-            
-            with col_team_name:
-                # Menampilkan badge dan nama tim
-                if team.get('strTeamBadge'):
-                    col_badge, col_name = st.columns([0.5, 3.5])
-                    with col_badge:
-                        st.image(team['strTeamBadge'], width=30)
-                    with col_name:
-                        st.write(f"**{team['strTeam']}** ({team.get('strLeague', 'N/A')})")
-                else:
-                    st.write(f"**{team['strTeam']}** ({team.get('strLeague', 'N/A')})")
-            
-            with col_select:
-                # Tombol untuk memilih tim. Gunakan 'idTeam' dan index 'i' sebagai kunci unik.
-                if st.button(f"Select", key=f"select_{team.get('idTeam', '')}_{i}"):
-                    st.session_state.selected_team = team['idTeam']
-                    st.session_state.selected_team_name = team['strTeam']
-                    
-                    # Logika navigasi otomatis
-                    st.session_state.current_page = "📌 Detail tim" 
-                    st.rerun()
-                    
-    elif st.session_state.search_query_input:
-         st.markdown("---")
-         st.write("Tidak ada tim ditemukan dengan kriteria tersebut.")
-
-
-def render_detail_tim():
-    st.header("📌 Detail tim")
-    
-    if st.session_state.selected_team:
-        team_id = st.session_state.selected_team
-        team = get_team_details(team_id)
-        
-        if team and team.get('idTeam'):
-            st.subheader(team.get('strTeam', 'Detail Tim'))
-            
-            col_img, col_info = st.columns([1, 2])
-            
-            with col_img:
-                if team.get('strTeamBadge'):
-                    st.image(team['strTeamBadge'], width=150, caption=team.get('strTeam'))
-                st.write(f"**Didirikan:** {team.get('intFormedYear', 'N/A')}")
-                st.write(f"**Olahraga:** {team.get('strSport', 'N/A')}")
-                
-            with col_info:
-                st.write(f"**Liga:** {team.get('strLeague', 'N/A')}")
-                st.write(f"**Negara:** {team.get('strCountry', 'N/A')}")
-                st.write(f"**Situs Web:** {team.get('strWebsite', 'N/A')}")
-                
-            st.markdown("---")
-            st.subheader("Deskripsi")
-            st.markdown(team.get('strDescriptionEN', 'Tidak ada deskripsi tersedia.'))
-            
-        else:
-            st.warning(f"Detail tim dengan ID {team_id} tidak ditemukan.")
+    if st.session_state.logged_in:
+        st.success("Anda sudah login! Silakan gunakan menu di sebelah kiri untuk mulai mendengarkan musik.")
+        st.info("💡 Tips: Pergi ke menu 'Search' untuk mencari lagu.")
     else:
-        st.info("Pilih tim dari halaman '🔍 Cari tim' untuk melihat detail.")
-
-def render_daftar_pemain():
-    st.header("👨‍🦱 Daftar pemain")
-    
-    if st.session_state.selected_team and st.session_state.selected_team_name:
-        st.subheader(f"Pemain Tim {st.session_state.selected_team_name}")
-        players = get_team_players(st.session_state.selected_team)
-        
-        if players:
-            st.success(f"Ditemukan {len(players)} pemain.")
-            
-            df_players = pd.DataFrame(players)
-            
-            cols_to_show = ['strPlayer', 'strPosition', 'dateBorn', 'strSigning', 'strNationality']
-            filtered_cols = [col for col in cols_to_show if col in df_players.columns]
-            
-            df_display = df_players[filtered_cols].rename(columns={
-                'strPlayer': 'Nama',
-                'strPosition': 'Posisi',
-                'dateBorn': 'Tgl Lahir',
-                'strSigning': 'Tgl Bergabung',
-                'strNationality': 'Kebangsaan'
-            })
-            
-            st.dataframe(df_display, use_container_width=True, hide_index=True)
-
-        else:
-            st.warning("❌ Tidak ada data pemain yang ditemukan untuk tim ini.") 
-            st.caption("Data pemain seringkali terbatas pada liga-liga besar di TheSportsDB.")
-    else:
-        st.info("Silakan pilih tim dari '🔍 Cari tim' terlebih dahulu.")
-
-# ... (Fungsi render_jadwal_pertandingan, render_liga_negara, render_info_stadion, dan render_home tetap sama) ...
-def render_jadwal_pertandingan():
-    st.header("⚽ Jadwal pertandingan")
-    
-    if st.session_state.selected_team and st.session_state.selected_team_name:
-        st.subheader(f"Jadwal Tim {st.session_state.selected_team_name}")
-        
-        # Pertandingan berikutnya
-        next_events = get_team_events(st.session_state.selected_team, next=True)
-        st.markdown("### Pertandingan Berikutnya")
-        
-        if next_events:
-            for event in next_events:
-                st.write(f"**{event.get('strEvent', 'N/A')}** vs **{event.get('strAwayTeam', 'N/A')}**")
-                st.caption(f"Liga: {event.get('strLeague', '')}, Tanggal: {event.get('dateEvent', 'N/A')}")
-                st.markdown("---")
-        else:
-            st.info("Tidak ada jadwal pertandingan berikutnya.")
-
-        # Pertandingan terakhir
-        last_events = get_team_events(st.session_state.selected_team, next=False)
-        st.markdown("### Pertandingan Terakhir")
-        
-        if last_events:
-            for event in last_events:
-                score = f"{event.get('intHomeScore', 'N/A')} - {event.get('intAwayScore', 'N/A')}"
-                st.write(f"**{event.get('strEvent', 'N/A')}** ({score})")
-                st.caption(f"Liga: {event.get('strLeague', '')}, Tanggal: {event.get('dateEvent', 'N/A')}")
-                st.markdown("---")
-        else:
-            st.info("Tidak ada data pertandingan terakhir.")
-            
-    else:
-        st.info("Silakan pilih tim dari '🔍 Cari tim' terlebih dahulu.")
-
-def render_liga_negara():
-    st.header("🎌 Liga & negara")
-    tab_leagues, tab_countries = st.tabs(["Daftar Liga", "Daftar Negara"])
-    
-    with tab_leagues:
-        leagues = get_all_leagues()
-        if leagues:
-            st.subheader("Semua Liga")
-            df_leagues = pd.DataFrame(leagues)
-            df_display = df_leagues[['strLeague', 'strSport']].rename(columns={
-                'strLeague': 'Nama Liga',
-                'strSport': 'Olahraga'
-            })
-            st.dataframe(df_display, use_container_width=True, hide_index=True)
-        else:
-            st.warning("Gagal mengambil data liga.")
-            
-    with tab_countries:
-        countries = get_all_countries() 
-        if countries:
-            st.subheader("Semua Negara")
-            df_countries = pd.DataFrame({'Negara': countries})
-            st.dataframe(df_countries, use_container_width=True, hide_index=True)
-        else:
-            st.warning("Gagal mengambil data negara.")
-
-def render_info_stadion():
-    st.header("🏟️ Info stadion")
-    
-    if st.session_state.selected_team:
-        team = get_team_details(st.session_state.selected_team)
-        
-        if team and team.get('strStadium'):
-            st.subheader(f"Stadion {team.get('strTeam', 'Tim Terpilih')}")
-            
-            if team.get('strStadiumThumb'):
-                st.image(team['strStadiumThumb'], width=300, caption=team.get('strStadium'))
-                
-            st.write(f"**Nama Stadion:** {team.get('strStadium', 'N/A')}")
-            st.write(f"**Lokasi:** {team.get('strStadiumLocation', 'N/A')}")
-            st.write(f"**Kapasitas:** {team.get('intStadiumCapacity', 'N/A')} penonton")
-            
-        else:
-            st.warning("Informasi stadion tidak ditemukan untuk tim ini.")
-    else:
-        st.info("Pilih tim dari '🔍 Cari tim' terlebih dahulu untuk melihat info stadion.")
-
-def render_home():
-    st.header("Home 🏡")
-    st.write("Selamat datang di **AthleteIQ**, aplikasi pencarian dan informasi olahraga menggunakan TheSportsDB API.")
-    st.write("Gunakan menu navigasi di sidebar untuk mencari tim, melihat detail pemain, jadwal, dan informasi stadion.")
-    if st.session_state.selected_team_name:
-         st.success(f"Status: Tim aktif saat ini adalah **{st.session_state.selected_team_name}**.")
-    else:
-         st.info("Status: Tim belum dipilih. Silakan mulai di halaman '🔍 Cari tim'.")
-
-# --- MAIN APP FLOW ---
-
-def main():
-    st.title("AthleteIQ") 
-    
-    if 'current_page' not in st.session_state:
-        st.session_state.current_page = "Home"
-
-    if not st.session_state.logged_in:
-        # Tampilkan Login/Register
+        st.header("Login atau Register")
         tab1, tab2 = st.tabs(["Login", "Register"])
         
         with tab1:
-            st.header("Login")
-            username = st.text_input("Username", key="login_username")
-            password = st.text_input("Password", type="password", key="login_password")
-            if st.button("Login", key="btn_login"):
-                success, message = login_user(username, password)
-                if success:
-                    st.success(message)
+            st.subheader("Login")
+            user_in = st.text_input("Username", key="l_user")
+            pass_in = st.text_input("Password", type="password", key="l_pass")
+            if st.button("Masuk"):
+                # Menghilangkan error "Username atau password salah!" jika login dengan 'livta'
+                if login_user(user_in, pass_in):
+                    st.session_state.logged_in = True
+                    st.session_state.username = user_in
+                    st.success("Login Berhasil!")
                     st.rerun()
                 else:
-                    st.error(message)
-        
-        with tab2:
-            st.header("Register")
-            username = st.text_input("Username", key="reg_username")
-            password = st.text_input("Password", type="password", key="reg_password")
-            if st.button("Register", key="btn_register"):
-                success, message = register_user(username, password)
-                if success:
-                    st.success(message)
-                else:
-                    st.error(message)
-    else:
-        # --- SIDEBAR (SETELAH LOGIN) ---
-        st.sidebar.title(f"Welcome, {st.session_state.username}!")
-        if st.sidebar.button("Logout"):
-            logout()
-            st.rerun()
-        
-        st.sidebar.markdown("### Navigate")
-        
-        page_options = [
-            "Home", 
-            "🔍 Cari tim", 
-            "📌 Detail tim", 
-            "👨‍🦱 Daftar pemain", 
-            "⚽ Jadwal pertandingan", 
-            "🎌 Liga & negara", 
-            "🏟️ Info stadion"
-        ]
-        
-        selected_page = st.sidebar.radio(
-            "Pilih Halaman", 
-            options=page_options,
-            index=page_options.index(st.session_state.current_page) if st.session_state.current_page in page_options else 0,
-            key="sidebar_navigation"
-        )
-        st.session_state.current_page = selected_page
-        
-        st.sidebar.markdown("---")
-        
-        if st.session_state.selected_team_name:
-            st.sidebar.success(f"⚽ Tim Aktif: **{st.session_state.selected_team_name}**")
-            st.sidebar.caption(f"ID: {st.session_state.selected_team}") 
-        else:
-            st.sidebar.warning("Tim Belum Dipilih")
-        
-        # --- KONTEN HALAMAN UTAMA ---
-        if st.session_state.current_page == "Home":
-            render_home()
-        elif st.session_state.current_page == "🔍 Cari tim":
-            render_cari_tim()
-        elif st.session_state.current_page == "📌 Detail tim":
-            render_detail_tim()
-        elif st.session_state.current_page == "👨‍🦱 Daftar pemain":
-            render_daftar_pemain()
-        elif st.session_state.current_page == "⚽ Jadwal pertandingan":
-            render_jadwal_pertandingan()
-        elif st.session_state.current_page == "🎌 Liga & negara":
-            render_liga_negara()
-        elif st.session_state.current_page == "🏟️ Info stadion":
-            render_info_stadion()
+                    st.error("Username atau Password salah!") 
 
-if __name__ == "__main__":
-    main()
+        with tab2:
+            st.subheader("Daftar Akun Baru")
+            new_user = st.text_input("Buat Username/Email", key="r_user")
+            new_pass = st.text_input("Buat Password", type="password", key="r_pass")
+            if st.button("Daftar"):
+                if new_user and new_pass:
+                    if register_user(new_user, new_pass):
+                        st.success("Akun berhasil dibuat! Silakan login.")
+                    else:
+                        st.error("Username sudah dipakai.")
+                else:
+                    st.warning("Data tidak boleh kosong.")
+
+# -------------------------------------------------------------------------
+# --- HALAMAN 2: SEARCH ---
+# -------------------------------------------------------------------------
+elif menu == "Search":
+    st.title("Cari Lagu atau Artis 🔍")
     
+    if not api_connected:
+        st.error("API Belum terkoneksi. Fitur ini tidak dapat digunakan.")
+    else:
+        query = st.text_input("Ketik judul lagu atau nama artis...", placeholder="Contoh: Tulus, Hati-Hati di Jalan")
+        search_type = st.selectbox("Tipe", ["track", "artist"])
+        
+        if query:
+            try:
+                results = sp.search(q=query, limit=10, type=search_type)
+                
+                if search_type == "track":
+                    tracks = results['tracks']['items']
+                    for track in tracks:
+                        col1, col2, col3 = st.columns([1, 4, 1])
+                        
+                        with col1:
+                            if track['album']['images']:
+                                st.image(track['album']['images'][0]['url'])
+                        
+                        with col2:
+                            st.subheader(track['name'])
+                            artist_names = ", ".join([artist['name'] for artist in track['artists']])
+                            st.write(f"👤 **{artist_names}** | 💿 {track['album']['name']}")
+                            if track['preview_url']:
+                                st.audio(track['preview_url'])
+                            else:
+                                st.caption("Preview audio tidak tersedia dari Spotify")
+                        
+                        with col3:
+                            if st.button("➕ Add", key=f"add_{track['id']}"):
+                                if track['id'] not in st.session_state.playlist:
+                                    st.session_state.playlist.append(track['id'])
+                                    st.toast("Lagu ditambahkan!", icon="✅")
+                                else:
+                                    st.toast("Lagu sudah ada di playlist", icon="⚠️")
+                        st.divider()
+                        
+                elif search_type == "artist":
+                    artists = results['artists']['items']
+                    for artist in artists:
+                        st.subheader(artist['name'])
+                        col_img, col_info = st.columns([1, 3])
+                        with col_img:
+                             if artist['images']:
+                                st.image(artist['images'][0]['url'], width=150)
+                        with col_info:
+                             st.write(f"Followers: **{artist['followers']['total']:,}**")
+                             st.write(f"Genre: **{', '.join(artist['genres']).title()}**")
+                        st.divider()
+                        
+            except Exception as e:
+                st.error(f"Error saat mencari: {e}")
+
+# -------------------------------------------------------------------------
+# --- HALAMAN 3: MY PLAYLIST ---
+# -------------------------------------------------------------------------
+elif menu == "My Playlist":
+    st.title("Playlist Saya 🎵")
+    
+    if not st.session_state.playlist:
+        st.info("Playlist masih kosong. Cari lagu dulu yuk!")
+        
+    elif not api_connected:
+        st.warning("Playlist hanya menampilkan ID lagu. Koneksi API diperlukan untuk detail.")
+        st.code(st.session_state.playlist)
+    else:
+        tracks_to_remove = []
+        need_rerun = False
+
+        for i, track_id in enumerate(st.session_state.playlist):
+            try:
+                track = sp.track(track_id)
+                
+                with st.container():
+                    col1, col2, col3 = st.columns([1, 4, 1])
+                    with col1:
+                        if track['album']['images']:
+                            st.image(track['album']['images'][min(len(track['album']['images']) - 1, 2)]['url']) 
+                    with col2:
+                        artist_names = ", ".join([artist['name'] for artist in track['artists']])
+                        st.write(f"**{track['name']}** - {artist_names}")
+                        if track['preview_url']:
+                            st.audio(track['preview_url'])
+                        else:
+                            st.caption("Preview audio tidak tersedia.")
+                    with col3:
+                        if st.button("❌ Hapus", key=f"del_{track_id}"):
+                            st.session_state.playlist.remove(track_id)
+                            st.toast("Lagu dihapus!", icon="🗑️")
+                            st.rerun() 
+                st.divider()
+            
+            except spotipy.exceptions.SpotifyException:
+                tracks_to_remove.append(track_id)
+                st.warning(f"Lagu dengan ID **{track_id}** tidak valid dan akan dihapus dari playlist.")
+                need_rerun = True
+            except Exception as e:
+                st.error(f"Gagal memuat info lagu: {e}")
+
+        if tracks_to_remove:
+            for track_id in tracks_to_remove:
+                if track_id in st.session_state.playlist:
+                    st.session_state.playlist.remove(track_id)
+        
+        if need_rerun:
+            st.rerun()
+
+# -------------------------------------------------------------------------
+# --- HALAMAN 4: NEW RELEASES (Menggantikan Audio Features & Trending) ---
+# -------------------------------------------------------------------------
+elif menu == "New Releases":
+    st.title("Album Baru Dirilis 💿")
+    st.info("Menampilkan album-album terbaru yang dirilis di Spotify.")
+
+    if not api_connected:
+        st.error("API Belum terkoneksi. Fitur ini tidak dapat digunakan.")
+        st.stop()
+        
+    try:
+        # Pilihan negara (Contoh: ID dan US lebih sering memiliki data)
+        countries = {
+            "Indonesia": "ID"
+        }
+        country_name = st.selectbox("Pilih Negara", list(countries.keys()))
+        country_code = countries[country_name]
+        
+        # Panggil API untuk New Releases (Endpoint yang stabil untuk Client Credentials)
+        results = sp.new_releases(country=country_code, limit=6)
+        
+        st.subheader(f"Album Baru di {country_name}")
+        
+        # Tampilkan dalam kolom
+        cols = st.columns(3)
+        
+        if results and 'albums' in results and 'items' in results['albums']:
+            albums = results['albums']['items']
+            for i, album in enumerate(albums):
+                with cols[i % 3]:
+                    st.markdown(f"**{album['name']}**")
+                    artist_names = ", ".join([artist['name'] for artist in album['artists']])
+                    st.caption(f"Oleh: {artist_names}")
+                    
+                    if album['images']:
+                        st.image(album['images'][0]['url'], width=150)
+                    
+                    # Tambahkan tautan ke Spotify eksternal
+                    if 'spotify' in album['external_urls']:
+                        st.markdown(f"[Lihat di Spotify]({album['external_urls']['spotify']})")
+                    st.markdown("---")
+        else:
+            st.warning("Tidak ada album baru yang ditemukan untuk negara ini.")
+            
+    except spotipy.exceptions.SpotifyException as e:
+        # Menangani error API umum (sekarang harusnya jarang terjadi)
+        st.error(f"Terjadi kesalahan saat memuat New Releases: {e}")
+    except Exception as e:
+        st.error(f"Kesalahan umum: {e}")
