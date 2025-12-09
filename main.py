@@ -3,8 +3,6 @@ import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 import pandas as pd
 import numpy as np
-import io # Diperlukan untuk export file
-import plotly.express as px # Diperlukan untuk visualisasi
 
 # --- KONFIGURASI API (WAJIB DIISI) ---
 CLIENT_ID = "7b9a0310b1734b728b21d0e84199c8c5"
