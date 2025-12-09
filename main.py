@@ -340,12 +340,19 @@ elif page == "Search & AI Recommendation":
                     for track in tracks:
                         st.subheader(f"🎶 {track.get('name', 'N/A')}")
                         artists_names = ', '.join([artist['name'] for artist in track['artists']])
-                        col_info, col_add = st.columns([3, 1])
+                        col_info, col_add, col_img = st.columns([1, 3, 1])
+                        with col_img:
+                            if track['album']['images']:
+                                st.image(track['album']['images'][0]['url'])                        
+                            
                         with col_info:
-                            st.write(f"*Artis:* {artists_names}")
-                            st.write(f"*Album:* {track['album']['name']}")
-                            if track.get('preview_url'):
-                                st.audio(track['preview_url'], format="audio/mp3", start_time=0)
+                            st.subheader(track['name'])
+                            artist_names = ", ".join([artist['name'] for artist in track['artists']])
+                            st.write(f"👤 *{artist_names}* | 💿 {track['album']['name']}")
+                            if track['preview_url']:
+                                st.audio(track['preview_url'])
+                            else:
+                                st.caption("Preview audio tidak tersedia dari Spotify")
                         
                         with col_add:
                             if st.button("➕ Tambah ke Playlist", key=f"add_{track['id']}"):
@@ -358,7 +365,7 @@ elif page == "Search & AI Recommendation":
                 # ... (Logika Artist dan Album asli dipertahankan) ...
             else:
                 st.error("Pencarian gagal atau token tidak valid.")
-
+                
 # =========================================================================================
 # HALAMAN 4: Playlist Builder (REVISI 4: Perbaikan Audio Feature Logic)
 # =========================================================================================
