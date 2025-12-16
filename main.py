@@ -1,7 +1,6 @@
 import streamlit as st
 import json
 import pandas as pd
-import plotly.express as px
 import google.generativeai as genai
 import os
 
@@ -160,12 +159,19 @@ elif page == "Playlist Saya":
                         st.session_state.my_playlist.pop(i)
                         st.rerun()
 
-# 7. STATISTIK MUSIK
+# 7. STATISTIK MUSIK (Versi Tanpa Plotly)
 elif page == "Statistik Musik":
-    if not st.session_state.logged_in: st.warning("Silakan login!")
+    if not st.session_state.logged_in: 
+        st.warning("Silakan login!")
     else:
-        st.title("📊 Statistik")
+        st.title("📊 Statistik Artis Terpopuler")
         if not df_master.empty:
+            # Mengambil 10 artis dengan jumlah lagu terbanyak
             top_art = df_master['artist_names'].value_counts().head(10)
-            fig = px.bar(top_art, color_continuous_scale='Magma')
-            st.plotly_chart(fig, use_container_width=True)
+            
+            # Menampilkan grafik batang menggunakan fungsi bawaan Streamlit
+            st.bar_chart(top_art)
+            
+            # Menampilkan data dalam bentuk tabel di bawahnya untuk detail
+            st.subheader("Detail Jumlah Lagu")
+            st.table(top_art)
