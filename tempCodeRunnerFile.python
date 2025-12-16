@@ -1,29 +1,33 @@
 import base64
 import requests
 
-CLIENT_ID = "1fb39004ea0b4f9eab14028bf81a2784"
-CLIENT_SECRET = "d1d0c01ff03049b8a9dcaa14886d49e2"
+# Masukkan Client ID & Client Secret kamu
+CLIENT_ID = "c8dcdaae6ece48f9831d2d6465c61e70"
+CLIENT_SECRET = "b7d4e2602bea48fd8d755a3f3c168376"
 
-# Encode ke base64
+# 1. Encode ke base64 (CLIENT_ID:CLIENT_SECRET)
 credentials = f"{CLIENT_ID}:{CLIENT_SECRET}"
 credentials_b64 = base64.b64encode(credentials.encode()).decode()
 
+# 2. Endpoint Spotify Token
 url = "https://accounts.spotify.com/api/token"
 
+# 3. Headers
 headers = {
     "Authorization": f"Basic {credentials_b64}",
     "Content-Type": "application/x-www-form-urlencoded"
 }
 
-data = {"grant_type": "client_credentials"}
+# 4. Body
+data = {
+    "grant_type": "client_credentials"
+}
 
+# 5. Kirim POST request
 response = requests.post(url, headers=headers, data=data)
-
-# Debug: tampilkan status code & full response
-print("STATUS CODE:", response.status_code)
-print("FULL RESPONSE:", response.json())
-
-# Ambil access token
 token_info = response.json()
+
+# 6. Ambil access token
 access_token = token_info.get("access_token")
+
 print("ACCESS TOKEN:", access_token)
