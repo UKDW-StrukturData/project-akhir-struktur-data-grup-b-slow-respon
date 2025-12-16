@@ -8,7 +8,7 @@ dependencies = [
     "streamlit",
     "spotipy==2.23.0",
     "pandas",
-    "numpy"
-    "plotly"
+    "numpy",
+    "plotly",
     "google-generativeai>=0.8.3"
 ]
