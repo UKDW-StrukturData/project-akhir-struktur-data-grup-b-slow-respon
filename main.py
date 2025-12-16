@@ -139,8 +139,6 @@ elif page == "HOME":
                 c3.metric("Top Hit", top_song)
             
             st.markdown("---")
-            st.subheader("🔥 Rekomendasi Untukmu")
-            st.dataframe(df_master.sample(min(10, len(df_master))), use_container_width=True)
 
 elif page == "Cari Lagu & AI":
     if not st.session_state.logged_in: st.warning("Login dulu!")
