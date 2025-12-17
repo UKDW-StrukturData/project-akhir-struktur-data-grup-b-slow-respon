@@ -12,7 +12,7 @@ from reportlab.lib.utils import ImageReader
 # =========================================================================================
 # 1. KONFIGURASI AI (DIRECT API) & DATABASE
 # =========================================================================================
-GEMINI_API_KEY = "AIzaSyDl-DXlC2bRLSyhHrKAr7A_UYGPmHGopBc" 
+GEMINI_API_KEY = st.secrets["APIKEY"]
 USER_DB_FILE = 'users.json'
 
 def load_users():
