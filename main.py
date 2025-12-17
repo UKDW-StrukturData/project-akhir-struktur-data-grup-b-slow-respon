@@ -27,31 +27,35 @@ def save_user(username, password):
     with open(USER_DB_FILE, 'w', encoding='utf-8') as f:
         json.dump(users, f)
 
-# Fungsi Gemini menggunakan requests (STABLE VERSION)
 def ask_gemini(prompt):
-    # Menggunakan model text-bison-001 yang biasanya lebih tersedia untuk akses langsung
-    url = f"https://generativelanguage.googleapis.com/v1beta3/models/text-bison-001:generateText?key={GEMINI_API_KEY}"
-    
-    headers = {'Content-Type': 'application/json'}
-    payload = {
-        "prompt": {
-            "text": prompt
-        }
+    api_key = st.secrets["APIKEY"]
+
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={api_key}"
+
+    headers = {
+        "Content-Type": "application/json"
     }
-    
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
+    }
+
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=10)
-        res_json = response.json()
-        
+        response = requests.post(url, headers=headers, json=payload, timeout=15)
+        result = response.json()
+
         if response.status_code == 200:
-            # Struktur output model Bison sedikit berbeda
-            return res_json['candidates'][0]['output']
+            return result["candidates"][0]["content"]["parts"][0]["text"]
         else:
-            # Jika tetap error, kita tampilkan detail untuk diagnosa
-            error_msg = res_json.get('error', {}).get('message', 'Terjadi kesalahan pada server AI.')
-            return f"⚠️ Error AI ({response.status_code}): {error_msg}"
+            return f"⚠️ Error AI ({response.status_code}): {result}"
     except Exception as e:
-        return f"❌ Koneksi Gagal: {str(e)}"
+        return f"❌ Koneksi gagal: {e}"
 
 # Inisialisasi Session State
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
