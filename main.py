@@ -3,7 +3,8 @@ import json
 import pandas as pd
 import requests
 import os
-import matplotlib.pyplot as plt          
+import matplotlib.pyplot as plt   
+import google.generativeai as genai       
 from io import BytesIO                   
 from reportlab.pdfgen import canvas      
 from reportlab.lib.pagesizes import A4   
@@ -12,55 +13,53 @@ from reportlab.lib.utils import ImageReader
 # =========================================================================================
 # 1. KONFIGURASI AI (DIRECT API) & DATABASE
 # =========================================================================================
-GEMINI_API_KEY = st.secrets["APIKEY"]
-USER_DB_FILE = 'users.json'
+API_KEY = st.secrets.get("APIKEY", "")
+USER_DB_FILE = "users.json"
 
 def load_users():
     if os.path.exists(USER_DB_FILE):
-        with open(USER_DB_FILE, 'r', encoding='utf-8') as f:
+        with open(USER_DB_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
 def save_user(username, password):
     users = load_users()
     users[username] = password
-    with open(USER_DB_FILE, 'w', encoding='utf-8') as f:
+    with open(USER_DB_FILE, "w", encoding="utf-8") as f:
         json.dump(users, f)
 
+model = None
+ai_connected = False
+
+if API_KEY:
+    try:
+        genai.configure(api_key=API_KEY)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        ai_connected = True
+    except Exception as e:
+        st.error(f"⚠️ API Key ada, tapi koneksi ke Gemini gagal: {e}")
+else:
+    st.warning("⚠️ API Key Gemini belum ditemukan di secrets.toml")
+
 def ask_gemini(prompt):
-    api_key = st.secrets["APIKEY"]
-
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={api_key}"
-
-    headers = {
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt}
-                ]
-            }
-        ]
-    }
+    if not ai_connected or model is None:
+        return "❌ Gemini AI belum terhubung."
 
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=15)
-        result = response.json()
-
-        if response.status_code == 200:
-            return result["candidates"][0]["content"]["parts"][0]["text"]
-        else:
-            return f"⚠️ Error AI ({response.status_code}): {result}"
+        response = model.generate_content(prompt)
+        return response.text if response.text else "AI tidak merespons."
     except Exception as e:
-        return f"❌ Koneksi gagal: {e}"
+        return f"❌ Gagal generate konten: {e}"
 
-# Inisialisasi Session State
-if 'logged_in' not in st.session_state: st.session_state.logged_in = False
-if 'user' not in st.session_state: st.session_state.user = None
-if 'my_playlist' not in st.session_state: st.session_state.my_playlist = []
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+if "my_playlist" not in st.session_state:
+    st.session_state.my_playlist = []
+
 
 # =========================================================================================
 # 2. LOAD DATA MUSIK
