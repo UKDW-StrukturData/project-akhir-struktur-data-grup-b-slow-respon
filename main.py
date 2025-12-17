@@ -3,6 +3,11 @@ import json
 import pandas as pd
 import requests
 import os
+import matplotlib.pyplot as plt          
+from io import BytesIO                   
+from reportlab.pdfgen import canvas      
+from reportlab.lib.pagesizes import A4   
+from reportlab.lib.utils import ImageReader
 
 # =========================================================================================
 # 1. KONFIGURASI AI (DIRECT API) & DATABASE
@@ -192,11 +197,60 @@ elif page == "Playlist Saya":
                     st.rerun()
 
 elif page == "Statistik Musik":
-    if not st.session_state.logged_in: st.warning("Silakan login!")
+    if not st.session_state.logged_in:
+        st.warning("Silakan login!")
     else:
         st.title("📊 Statistik Artis Terpopuler")
+
         if not df_master.empty and 'artist_names' in df_master.columns:
             top_art = df_master['artist_names'].value_counts().head(10)
-            st.bar_chart(top_art)
+
+            # ===== BUAT GRAFIK (MATPLOTLIB) =====
+            fig, ax = plt.subplots(figsize=(8, 5))
+            ax.bar(top_art.index, top_art.values)
+            ax.set_title("Top 10 Artis Terpopuler")
+            ax.set_xlabel("Nama Artis")
+            ax.set_ylabel("Jumlah Lagu")
+            plt.xticks(rotation=45, ha="right")
+
+            st.pyplot(fig)
+
+            # ===== TABEL =====
             st.subheader("Detail Jumlah Lagu")
             st.table(top_art)
+
+            # ===== SIMPAN GRAFIK KE MEMORY =====
+            img_buffer = BytesIO()
+            fig.savefig(img_buffer, format="png", bbox_inches="tight")
+            img_buffer.seek(0)
+
+            # ===== BUAT PDF =====
+            pdf_buffer = BytesIO()
+            c = canvas.Canvas(pdf_buffer, pagesize=A4)
+
+            c.setFont("Helvetica-Bold", 14)
+            c.drawString(50, 820, "Statistik Artis Terpopuler")
+
+            c.setFont("Helvetica", 10)
+            c.drawString(50, 800, "Top 10 Artis berdasarkan jumlah lagu")
+
+            c.drawImage(
+                ImageReader(img_buffer),
+                50, 400,
+                width=500,
+                height=300,
+                preserveAspectRatio=True
+            )
+
+            c.showPage()
+            c.save()
+            pdf_buffer.seek(0)
+
+            # ===== TOMBOL DOWNLOAD PDF =====
+            st.download_button(
+                label="⬇️ Unduh Grafik (PDF)",
+                data=pdf_buffer,
+                file_name="Statistik_Artis_Terpopuler.pdf",
+                mime="application/pdf",
+                type="primary"
+            )
