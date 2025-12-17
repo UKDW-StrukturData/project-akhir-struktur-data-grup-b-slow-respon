@@ -3,8 +3,7 @@ import json
 import pandas as pd
 import requests
 import os
-import matplotlib.pyplot as plt   
-import google.generativeai as genai       
+import matplotlib.pyplot as plt           
 from io import BytesIO                   
 from reportlab.pdfgen import canvas      
 from reportlab.lib.pagesizes import A4   
@@ -13,56 +12,49 @@ from reportlab.lib.utils import ImageReader
 # =========================================================================================
 # 1. KONFIGURASI AI (DIRECT API) & DATABASE
 # =========================================================================================
-API_KEY = st.secrets.get("APIKEY", "")
-USER_DB_FILE = "users.json"
+# Pastikan APIKEY ada di st.secrets
+try:
+    GEMINI_API_KEY = st.secrets["APIKEY"]
+except:
+    GEMINI_API_KEY = ""
+
+USER_DB_FILE = 'users.json'
 
 def load_users():
     if os.path.exists(USER_DB_FILE):
-        with open(USER_DB_FILE, "r", encoding="utf-8") as f:
+        with open(USER_DB_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
     return {}
 
 def save_user(username, password):
     users = load_users()
     users[username] = password
-    with open(USER_DB_FILE, "w", encoding="utf-8") as f:
+    with open(USER_DB_FILE, 'w', encoding='utf-8') as f:
         json.dump(users, f)
 
-model = None
-ai_connected = False
-
-if API_KEY:
-    try:
-        genai.configure(api_key=API_KEY)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        ai_connected = True
-    except Exception as e:
-        st.error(f"⚠️ API Key ada, tapi koneksi ke Gemini gagal: {e}")
-else:
-    st.warning("⚠️ API Key Gemini belum ditemukan di secrets.toml")
-
 def ask_gemini(prompt):
-    if not ai_connected or model is None:
-        return "❌ Gemini AI belum terhubung."
-
+    url = f"https://generativelanguage.googleapis.com/v1beta3/models/text-bison-001:generateText?key={GEMINI_API_KEY}"
+    headers = {'Content-Type': 'application/json'}
+    payload = {"prompt": {"text": prompt}}
+    
     try:
-        response = model.generate_content(prompt)
-        return response.text if response.text else "AI tidak merespons."
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        res_json = response.json()
+        if response.status_code == 200:
+            return res_json['candidates'][0]['output']
+        else:
+            error_msg = res_json.get('error', {}).get('message', 'Terjadi kesalahan pada server AI.')
+            return f"⚠️ Error AI ({response.status_code}): {error_msg}"
     except Exception as e:
-        return f"❌ Gagal generate konten: {e}"
+        return f"❌ Koneksi Gagal: {str(e)}"
 
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-
-if "user" not in st.session_state:
-    st.session_state.user = None
-
-if "my_playlist" not in st.session_state:
-    st.session_state.my_playlist = []
-
+# Inisialisasi Session State
+if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+if 'user' not in st.session_state: st.session_state.user = None
+if 'my_playlist' not in st.session_state: st.session_state.my_playlist = []
 
 # =========================================================================================
-# 2. LOAD DATA MUSIK
+# 2. LOAD DATA MUSIK (OPTIMALISASI DATA.JSON)
 # =========================================================================================
 @st.cache_data
 def load_music_data():
@@ -79,12 +71,17 @@ def load_music_data():
 
 df_master = load_music_data()
 
+# Helper untuk durasi
+def ms_to_min(ms):
+    sec = int((ms/1000)%60)
+    mins = int((ms/(1000*60))%60)
+    return f"{mins}:{sec:02d}"
+
 # =========================================================================================
 # 3. ANTARMUKA UTAMA
 # =========================================================================================
 st.set_page_config(page_title="Streamify Pro AI", layout="wide", page_icon="🎵")
 
-# Sidebar Navigasi
 if st.session_state.logged_in:
     st.sidebar.title(f"🎵 Halo, {st.session_state.user}")
     page = st.sidebar.radio("Menu:", ["HOME", "Cari Lagu & AI", "Playlist Saya", "Statistik Musik", "Logout"])
@@ -147,6 +144,8 @@ elif page == "HOME":
                 c3.metric("Top Hit", top_song)
             
             st.markdown("---")
+            st.subheader("Rekomendasi Terpopuler Hari Ini")
+            st.dataframe(df_master[['track_name', 'artist_names', 'album_name', 'popularity']].sort_values(by='popularity', ascending=False).head(10))
 
 elif page == "Cari Lagu & AI":
     if not st.session_state.logged_in: st.warning("Login dulu!")
@@ -155,7 +154,7 @@ elif page == "Cari Lagu & AI":
         t1, t2 = st.tabs(["Pencarian", "Tanya Gemini AI ✨"])
         
         with t1:
-            q = st.text_input("Cari judul lagu atau artis...")
+            q = st.text_input("Cari judul lagu, artis, atau album...")
             if q:
                 res = df_master[
                     df_master['track_name'].str.contains(q, case=False, na=False) | 
@@ -163,21 +162,29 @@ elif page == "Cari Lagu & AI":
                 ]
                 if not res.empty:
                     for index, row in res.head(10).iterrows():
-                        col_a, col_b = st.columns([4, 1])
-                        col_a.write(f"🎵 **{row['track_name']}** - {row['artist_names']}")
-                        # Key unik menggunakan index agar tidak error
-                        if col_b.button("Tambah", key=f"add_{index}"):
-                            st.session_state.my_playlist.append(row.to_dict())
-                            st.toast(f"Ditambahkan: {row['track_name']}")
+                        with st.container(border=True):
+                            col_img, col_info, col_btn = st.columns([1, 4, 1])
+                            with col_img:
+                                if 'album_image_url' in row:
+                                    st.image(row['album_image_url'], width=100)
+                            with col_info:
+                                st.markdown(f"**{row['track_name']}** - {row['artist_names']}")
+                                st.caption(f"Album: {row['album_name']} | Populer: {row['popularity']}")
+                                if 'track_preview_url' in row and row['track_preview_url']:
+                                    st.audio(row['track_preview_url'], format="audio/mp3")
+                            with col_btn:
+                                if st.button("➕ Tambah", key=f"add_{index}"):
+                                    st.session_state.my_playlist.append(row.to_dict())
+                                    st.toast(f"Ditambahkan: {row['track_name']}")
                 else:
                     st.info("Lagu tidak ditemukan.")
 
         with t2:
-            user_msg = st.text_area("Tanya AI (Contoh: 'Rekomendasi lagu yang mirip Taylor Swift')", height=100)
+            user_msg = st.text_area("Tanya AI (Contoh: 'Rekomendasi lagu BLACKPINK')", height=100)
             if st.button("Minta Saran AI"):
                 if user_msg:
-                    sample_data = df_master[['track_name', 'artist_names']].sample(min(20, len(df_master))).to_string()
-                    full_prompt = f"Data lagu kami:\n{sample_data}\n\nUser: {user_msg}\nBerikan rekomendasi lagu."
+                    sample_data = df_master[['track_name', 'artist_names']].sample(min(15, len(df_master))).to_string()
+                    full_prompt = f"Data lagu kami:\n{sample_data}\n\nUser: {user_msg}\nBerikan rekomendasi lagu berdasarkan data tersebut."
                     with st.spinner("AI sedang berpikir..."):
                         jawaban = ask_gemini(full_prompt)
                         st.markdown(jawaban)
@@ -191,69 +198,48 @@ elif page == "Playlist Saya":
         if not st.session_state.my_playlist:
             st.info("Playlist kamu kosong.")
         else:
-            # Menggunakan list comprehension untuk menghindari index error saat pop
             for i, t in enumerate(st.session_state.my_playlist):
-                col1, col2 = st.columns([5, 1])
-                col1.write(f"{i+1}. **{t['track_name']}** - {t['artist_names']}")
-                if col2.button("Hapus", key=f"del_{i}"):
-                    st.session_state.my_playlist.pop(i)
-                    st.rerun()
+                with st.expander(f"{i+1}. {t['track_name']} - {t['artist_names']}"):
+                    st.write(f"Album: {t['album_name']}")
+                    if 'track_duration_ms' in t:
+                        st.write(f"Durasi: {ms_to_min(t['track_duration_ms'])}")
+                    if st.button("🗑️ Hapus Lagu", key=f"del_{i}"):
+                        st.session_state.my_playlist.pop(i)
+                        st.rerun()
 
 elif page == "Statistik Musik":
-    if not st.session_state.logged_in:
-        st.warning("Silakan login!")
+    if not st.session_state.logged_in: st.warning("Silakan login!")
     else:
         st.title("📊 Statistik Artis Terpopuler")
-
         if not df_master.empty and 'artist_names' in df_master.columns:
             top_art = df_master['artist_names'].value_counts().head(10)
-
-            # ===== BUAT GRAFIK (MATPLOTLIB) =====
-            fig, ax = plt.subplots(figsize=(8, 5))
-            ax.bar(top_art.index, top_art.values)
-            ax.set_title("Top 10 Artis Terpopuler")
-            ax.set_xlabel("Nama Artis")
-            ax.set_ylabel("Jumlah Lagu")
+            
+            fig, ax = plt.subplots(figsize=(10, 5))
+            ax.bar(top_art.index, top_art.values, color='skyblue')
+            ax.set_title("Top 10 Artis Berdasarkan Jumlah Lagu")
             plt.xticks(rotation=45, ha="right")
-
             st.pyplot(fig)
 
-            # ===== TABEL =====
             st.subheader("Detail Jumlah Lagu")
             st.table(top_art)
 
-            # ===== SIMPAN GRAFIK KE MEMORY =====
+            # PDF Generator
             img_buffer = BytesIO()
             fig.savefig(img_buffer, format="png", bbox_inches="tight")
             img_buffer.seek(0)
-
-            # ===== BUAT PDF =====
+            
             pdf_buffer = BytesIO()
             c = canvas.Canvas(pdf_buffer, pagesize=A4)
-
             c.setFont("Helvetica-Bold", 14)
-            c.drawString(50, 820, "Statistik Artis Terpopuler")
-
-            c.setFont("Helvetica", 10)
-            c.drawString(50, 800, "Top 10 Artis berdasarkan jumlah lagu")
-
-            c.drawImage(
-                ImageReader(img_buffer),
-                50, 400,
-                width=500,
-                height=300,
-                preserveAspectRatio=True
-            )
-
+            c.drawString(50, 820, f"Statistik Musik Streamify - User: {st.session_state.user}")
+            c.drawImage(ImageReader(img_buffer), 50, 450, width=500, height=300, preserveAspectRatio=True)
             c.showPage()
             c.save()
             pdf_buffer.seek(0)
 
-            # ===== TOMBOL DOWNLOAD PDF =====
             st.download_button(
-                label="⬇️ Unduh Grafik (PDF)",
+                label="⬇️ Unduh Laporan (PDF)",
                 data=pdf_buffer,
-                file_name="Statistik_Artis_Terpopuler.pdf",
-                mime="application/pdf",
-                type="primary"
+                file_name=f"Statistik_{st.session_state.user}.pdf",
+                mime="application/pdf"
             )
